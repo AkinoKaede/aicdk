@@ -60,7 +60,6 @@ function Layout({ loading, error, reconnect }: { loading: boolean; error: boolea
 
 function Home() {
   const { t } = useTranslation()
-  const session = useSession()
   const services = [
     { to: '/redeem', icon: Ticket, no: '01', title: '卡密兑换', tagline: '有卡密，从这里开始。', description: '验证你的卡密，确认目标账号，开启订阅。', action: '进入兑换', color: 'featured' },
     { to: '/batch', icon: Layers3, no: '02', title: '批量兑换', tagline: '多个账号，一次安排。', description: '本地导入表格，逐行核对，依次提交。', action: '导入与兑换', color: 'orange' },
@@ -74,7 +73,6 @@ function Home() {
         <h1>{t('你的订阅，')}<br /><span>{t('轻松兑换。')}<svg className="headline-underline" viewBox="0 0 360 17" aria-hidden="true"><path d="M3 11Q160 -2 355 8M42 15Q214 5 321 12" /></svg></span></h1>
         <p className="hero-description">{t('从一张卡密，到你的会员。')}<br />{t('验证、确认、跟踪，让每一步都清晰可见。')}</p>
         <div className="hero-actions"><Link className="button" to="/redeem">{t('开始兑换')}<ArrowUpRight size={19} /></Link><Link className="quiet-link" to="/progress">{t('查询已有兑换')}<ArrowRight size={16} /></Link></div>
-        <div className="hero-trust"><span><ShieldCheck size={15} />{t('服务端安全中转')}</span><span><Check size={15} />{t('无需注册本站账号')}</span></div>
       </div>
       <div className="hero-art">
         <div className="orbit orbit-one" /><div className="orbit orbit-two" /><span className="art-plus plus-one">+</span><span className="art-plus plus-two">+</span>
@@ -97,6 +95,5 @@ function Home() {
     </section>
     <section className="billing-banner"><div className="billing-icon"><FileText size={25} strokeWidth={1.5} /></div><div><p className="tiny-label">A CLEARER PICTURE</p><h2>{t('账单与订阅，一目了然。')}</h2><p>{t('查询 ChatGPT 订阅摘要、最近付款与可用账单。')}</p></div><Link to="/billing" className="button secondary">{t('查看账单')}<ArrowUpRight size={16} /></Link></section>
     <section className="help-banner"><BookOpen size={24} strokeWidth={1.5} /><div><h3>{t('第一次使用？我们陪你走一遍。')}</h3><p>{t('了解账号凭证、兑换步骤和常见问题。')}</p></div><Link to="/help" className="text-link">{t('阅读使用说明')}<ArrowRight size={16} /></Link></section>
-    {session && <div className="home-session"><span className="status-dot" />{t('安全会话就绪')}<span>/</span><span>REDEEM WITH CLARITY</span></div>}
   </>
 }

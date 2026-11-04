@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import i18n, { detectLanguage } from './i18n'
-import { blockingReason, displayAmount, displayDate, isTerminal, pairRows, parseCSV, rowsFromSheet, safeInvoiceURL } from './model'
+import { blockingReason, credentialHelp, displayAmount, displayDate, isTerminal, pairRows, parseCSV, rowsFromSheet, safeInvoiceURL } from './model'
 import type { Preview } from './types'
 
 beforeEach(async () => { await i18n.changeLanguage('en') })
@@ -13,6 +13,20 @@ describe('language detection', () => {
     expect(detectLanguage('en', ['zh-CN'])).toBe('en')
     expect(detectLanguage('zh-CN', ['en-US'])).toBe('zh-CN')
     expect(detectLanguage('invalid', [])).toBe('en')
+  })
+})
+
+describe('account credential guidance', () => {
+  it.each(['gpt', 'chatgpt', 'ChatGPT'])('explains the complete JSON requirement for %s in both languages', async (product) => {
+    expect(credentialHelp(product)).toBe('Open chatgpt.com/api/auth/session and copy the complete JSON (sessionToken is required). Access Token-only credentials are disabled.')
+    await i18n.changeLanguage('zh-CN')
+    expect(credentialHelp(product)).toBe('打开 chatgpt.com/api/auth/session 复制完整 JSON（必须含 sessionToken）。已禁用纯 Access Token。')
+  })
+  it('keeps other products on their own credential instructions', () => {
+    expect(credentialHelp('claude')).toContain('sessionKey')
+    expect(credentialHelp('grok')).toContain('SSO')
+    expect(credentialHelp('x')).toContain('billing_email')
+    expect(credentialHelp()).not.toContain('chatgpt.com')
   })
 })
 

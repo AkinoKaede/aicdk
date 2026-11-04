@@ -24,7 +24,7 @@ export function productName(product?: string): string {
 
 export function credentialHelp(product?: string): string {
   switch (product?.toLowerCase()) {
-    case 'gpt': case 'chatgpt': return t('粘贴包含 sessionToken 或 session_token 的完整 Session JSON，仅 Access Token 不可用。')
+    case 'gpt': case 'chatgpt': return t('打开 chatgpt.com/api/auth/session 复制完整 JSON（必须含 sessionToken）。已禁用纯 Access Token。')
     case 'claude': return t('粘贴登录账号的 sessionKey，不是 Anthropic API Key。')
     case 'grok': return t('粘贴目标账号的 SSO 凭证。确认账号后才会提交兑换。')
     case 'x': return t('粘贴包含 billing_email、auth_token、ct0 的 JSON，或包含邮箱与 cookieHeader 的完整凭证。')

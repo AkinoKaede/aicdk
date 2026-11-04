@@ -9,12 +9,14 @@ import i18n from './i18n'
 const requests: Array<{ operation: string; body: Record<string, unknown> }> = []
 let submissionFails = false
 let rejectProgressLookup = false
+let previewProduct = 'gpt'
 
 beforeEach(async () => {
   localStorage.clear()
   requests.length = 0
   submissionFails = false
   rejectProgressLookup = false
+  previewProduct = 'gpt'
   vi.stubGlobal('crypto', webcrypto)
   window.history.replaceState({}, '', '/redeem')
   window.scrollTo = vi.fn()
@@ -28,7 +30,7 @@ beforeEach(async () => {
     }
     const data: Record<string, unknown> = {
       session: { csrf_token: 'csrf-token', default_system: 'primary', systems: [{ id: 'primary', name: 'Primary' }] },
-      preview: { redemption_token: 'redemption-token', product: 'gpt', plan: 'plus', system_id: 'primary', system_name: 'Primary' },
+      preview: { redemption_token: 'redemption-token', product: previewProduct, plan: 'plus', system_id: 'primary', system_name: 'Primary' },
       preflight: { email: 'customer@example.test', currentPlan: 'free', preflight_token: 'preflight-token' },
       redeem: { status: 'queued' },
       result: { status: 'completed', account_email: 'customer@example.test' },
@@ -87,15 +89,81 @@ it('switches language without navigating or losing entered codes', async () => {
   expect(window.location.pathname).toBe('/redeem')
 })
 
-async function reachConfirmation() {
+it('removes the homepage trust badges and session footer in both languages while keeping redemption links', async () => {
+  window.history.replaceState({}, '', '/')
+  const user = userEvent.setup()
+  render(<App />)
+  for (const link of await screen.findAllByRole('link', { name: 'Redeem a code' })) expect(link).toHaveAttribute('href', '/redeem')
+  expect(screen.queryByText('Server-side requests')).not.toBeInTheDocument()
+  expect(screen.queryByText('No site account needed')).not.toBeInTheDocument()
+  expect(screen.queryByText('Secure session ready')).not.toBeInTheDocument()
+  expect(screen.queryByText('REDEEM WITH CLARITY')).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Select language' }), 'zh-CN')
+  expect(screen.getByRole('link', { name: '开始兑换' })).toHaveAttribute('href', '/redeem')
+  expect(screen.queryByText('服务端安全中转')).not.toBeInTheDocument()
+  expect(screen.queryByText('无需注册本站账号')).not.toBeInTheDocument()
+  expect(screen.queryByText('安全会话就绪')).not.toBeInTheDocument()
+  expect(screen.queryByText('REDEEM WITH CLARITY')).not.toBeInTheDocument()
+})
+
+it('keeps help focused on redemption and uses the same Session instructions in both languages', async () => {
+  window.history.replaceState({}, '', '/help')
+  const user = userEvent.setup()
+  render(<App />)
+  expect(await screen.findByText('Open chatgpt.com/api/auth/session and copy the complete JSON (sessionToken is required). Access Token-only credentials are disabled.')).toBeInTheDocument()
+  expect(screen.queryByText('Is language selected automatically?')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Ask the provider how it handles credentials/)).not.toBeInTheDocument()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Select language' }), 'zh-CN')
+  expect(screen.getByText('打开 chatgpt.com/api/auth/session 复制完整 JSON（必须含 sessionToken）。已禁用纯 Access Token。')).toBeInTheDocument()
+  expect(screen.queryByText('语言会自动选择吗？')).not.toBeInTheDocument()
+  expect(screen.queryByText(/服务提供方如何处理凭证，请向其咨询/)).not.toBeInTheDocument()
+  expect(screen.getByText('卡密和凭证会经本站服务器发送给服务提供方。本站不会将完整卡密、Session 或兑换令牌存入浏览器历史或本站数据库，也不记录请求内容。')).toBeInTheDocument()
+})
+
+async function reachPreflight() {
   const user = userEvent.setup()
   render(<App />)
   await user.type(await screen.findByLabelText('Redemption code'), 'A-123456')
   await user.click(screen.getByRole('button', { name: 'Verify code & continue' }))
+  await screen.findByLabelText('Account credential')
+  return user
+}
+
+it.each(['gpt', 'ChatGPT'])('guides %s users through getting a complete Session without submitting a redemption', async (product) => {
+  previewProduct = product
+  const user = await reachPreflight()
+  const link = screen.getByRole('link', { name: 'Open the Session page (new window)' })
+  expect(link).toHaveAttribute('href', 'https://chatgpt.com/api/auth/session')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  expect(screen.getByLabelText('Account credential')).toHaveAccessibleDescription(/sessionToken is required.*Access Token-only credentials are disabled/)
+  expect(screen.getByText('This check does not start a redemption. Next, review the email and plan before confirming your submission.')).toBeInTheDocument()
+  const button = screen.getByRole('button', { name: 'Verify account & continue' })
+  expect(button).toBeDisabled()
+  await user.type(screen.getByLabelText('Account credential'), 'complete-session-credential')
+  expect(button).toBeDisabled()
+  await user.click(screen.getByRole('checkbox', { name: /I understand my credential/ }))
+  expect(button).toBeEnabled()
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Select language' }), 'zh-CN')
+  expect(screen.getByText('打开 chatgpt.com/api/auth/session 复制完整 JSON（必须含 sessionToken）。已禁用纯 Access Token。')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '打开 Session 页面（新窗口）' })).toHaveAttribute('href', 'https://chatgpt.com/api/auth/session')
+  expect(screen.getByLabelText('账号凭证')).toHaveValue('complete-session-credential')
+  expect(requests.filter((r) => ['preflight', 'redeem'].includes(r.operation))).toHaveLength(0)
+})
+
+it.each(['claude', 'grok', 'x'])('does not show ChatGPT Session instructions for %s', async (product) => {
+  previewProduct = product
+  await reachPreflight()
+  expect(screen.queryByRole('link', { name: /Open the Session page/ })).not.toBeInTheDocument()
+  expect(screen.queryByText(/sessionToken is required/)).not.toBeInTheDocument()
+})
+
+async function reachConfirmation() {
+  const user = await reachPreflight()
   const credential = await screen.findByLabelText('Account credential')
   await user.type(credential, 'complete-session-credential')
   await user.click(screen.getByRole('checkbox', { name: /I understand my credential/ }))
-  await user.click(screen.getByRole('button', { name: 'Verify account' }))
+  await user.click(screen.getByRole('button', { name: 'Verify account & continue' }))
   await screen.findByText('customer@example.test')
   return user
 }

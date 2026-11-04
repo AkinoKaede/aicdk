@@ -26,6 +26,7 @@ export function Redeem() {
   const { busy, run } = useBusyGuard()
   const step = submitted ? 3 : preflight ? 2 : preview ? 1 : 0
   const blocked = preview && preflight ? blockingReason(preview, preflight) : null
+  const isChatGPT = ['gpt', 'chatgpt'].includes(preview?.product.toLowerCase() || '')
 
   function verify(event: FormEvent) {
     event.preventDefault()
@@ -101,10 +102,19 @@ export function Redeem() {
         {step === 1 && preview && <form onSubmit={check}>
           <div className="verified-line"><ShieldCheck size={18} />{t('卡密验证通过')}</div>
           <dl className="detail-list product-detail"><div><dt>{t('产品与套餐')}</dt><dd>{productName(preview.product)} <span className="plan-tag">{preview.plan}</span></dd></div><div><dt>{t('支付地区 / 币种')}</dt><dd>{preview.payment_country || '—'} / {preview.payment_currency || '—'}</dd></div><div><dt>{t('兑换系统')}</dt><dd>{preview.system_name}</dd></div></dl>
-          <label className="field-label" htmlFor="credential">{t('账号凭证')}</label><p className="field-help" id="credential-help">{credentialHelp(preview.product)}</p>
-          <textarea id="credential" aria-describedby="credential-help" value={credential} onChange={(event) => setCredential(event.target.value)} placeholder={t('粘贴完整凭证，内容不会写入本地历史')} rows={6} autoComplete="off" spellCheck={false} disabled={busy} required />
+          <label className="field-label" htmlFor="credential">{t('账号凭证')}</label>
+          {isChatGPT ? <div className="session-instructions" id="credential-help">
+            <p>{t('先在当前浏览器登录要充值的 ChatGPT 账号，再获取凭证。')}</p>
+            <p>{credentialHelp(preview.product)}</p>
+            <a className="text-link" href="https://chatgpt.com/api/auth/session" target="_blank" rel="noopener noreferrer">{t('打开 Session 页面（新窗口）')}<ArrowUpRight size={15} aria-hidden="true" /></a>
+            <p>{t('复制页面全部 JSON，回到此处粘贴，不要只复制某个字段。')}</p>
+          </div> : <p className="field-help" id="credential-help">{credentialHelp(preview.product)}</p>}
+          <textarea id="credential" aria-describedby={isChatGPT ? 'credential-help credential-recovery' : 'credential-help'} value={credential} onChange={(event) => setCredential(event.target.value)} placeholder={t('粘贴完整凭证，内容不会写入本地历史')} rows={6} autoComplete="off" spellCheck={false} disabled={busy} required />
+          {isChatGPT && <p className="field-help" id="credential-recovery">{t('若页面为空或缺少 sessionToken，请确认已登录目标账号并刷新页面；仍无法获取时，请联系发卡方。')}</p>}
           <label className="checkbox-label"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} disabled={busy} /><span>{t('我了解本站会将凭证发送给服务提供方，用于验证账号和兑换。')}</span></label>
-          <Button type="submit" className="full" busy={busy} disabled={!consent || !credential.trim()}>{t('核验目标账号')}<ArrowRight size={17} /></Button><button className="text-button form-back" type="button" onClick={reset} disabled={busy}>{t('重新输入卡密')}</button>
+          <Button type="submit" className="full" busy={busy} disabled={!consent || !credential.trim()}>{t('核验账号并继续')}<ArrowRight size={17} /></Button>
+          <p className="field-help center">{t('预检不会发起充值。下一步核对邮箱和套餐后，再确认提交。')}</p>
+          <button className="text-button form-back" type="button" onClick={reset} disabled={busy}>{t('重新输入卡密')}</button>
         </form>}
         {step === 2 && preview && preflight && <form onSubmit={submit}>
           <p className="eyebrow">CHECK BEFORE YOU CONFIRM</p><h2>{t('核对后，再迈出最后一步。')}</h2><p className="muted">{t('本次将为以下账号兑换，请仔细检查邮箱。')}</p>
