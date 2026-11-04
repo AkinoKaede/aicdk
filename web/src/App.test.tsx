@@ -106,6 +106,20 @@ it('removes the homepage trust badges and session footer in both languages while
   expect(screen.queryByText('REDEEM WITH CLARITY')).not.toBeInTheDocument()
 })
 
+it('uses compact footer spacing only on the homepage, including after navigation', async () => {
+  window.history.replaceState({}, '', '/')
+  const user = userEvent.setup()
+  render(<App />)
+  await screen.findAllByRole('link', { name: 'Redeem a code' })
+  expect(screen.getByRole('main')).toHaveClass('main-home')
+  await user.click(screen.getAllByRole('link', { name: 'Redeem a code' })[0])
+  await screen.findByLabelText('Redemption code')
+  expect(screen.getByRole('main')).not.toHaveClass('main-home')
+  await user.click(screen.getAllByRole('link', { name: 'Overview' })[0])
+  expect(screen.getByRole('main')).toHaveClass('main-home')
+  expect(screen.getByText('First time here? Let’s walk through it.')).toBeInTheDocument()
+})
+
 it('keeps help focused on redemption and uses the same Session instructions in both languages', async () => {
   window.history.replaceState({}, '', '/help')
   const user = userEvent.setup()

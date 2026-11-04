@@ -40,7 +40,7 @@ function Layout({ loading, error, reconnect }: { loading: boolean; error: boolea
       </nav>
       <div className="header-tools"><Link to="/help" className="header-help"><CircleHelp size={17} /><span>{t('使用帮助')}</span></Link><label className="language-switch"><Globe2 size={16} /><span className="sr-only">{t('切换语言')}</span><select aria-label={t('切换语言')} value={i18n.language} onChange={(event) => void i18n.changeLanguage(event.target.value)}><option value="zh-CN">简体中文</option><option value="en">English</option></select><ChevronDown size={12} /></label></div>
     </header>
-    <main id="main-content" className="main" tabIndex={-1}>
+    <main id="main-content" className={location.pathname === '/' ? 'main main-home' : 'main'} tabIndex={-1}>
       {loading && <div className="connection-status"><span className="loading-dot" />{t('建立安全会话中…')}</div>}
       {error && <div className="connection-error"><Notice tone="error">{t('无法连接本站服务，请确认后端正在运行。')} <button className="text-button" onClick={reconnect}>{t('重新连接')}</button></Notice></div>}
       <Routes>
