@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+/data/
+/bin/
+/config.json
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+web/coverage/
+*.log
+*.tsbuildinfo
+.DS_Store

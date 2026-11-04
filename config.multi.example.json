@@ -1,0 +1,23 @@
+{
+  "default_system": "",
+  "systems": [
+    {
+      "id": "primary",
+      "name": "Primary",
+      "adapter": "partner-v1",
+      "base_url": "https://cdk.bar",
+      "password_env": "CDK_PARTNER_PASSWORD",
+      "prefixes": ["CDK-", "GPT-"],
+      "strip_prefix": false
+    },
+    {
+      "id": "secondary",
+      "name": "Secondary",
+      "adapter": "partner-v1",
+      "base_url": "https://replace-with-your-second-upstream.example",
+      "password_env": "SECONDARY_PARTNER_PASSWORD",
+      "prefixes": ["ALT-"],
+      "strip_prefix": true
+    }
+  ]
+}

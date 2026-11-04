@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+data
+bin
+config.json
+web/node_modules
+web/dist
+web/coverage
+*.log
+web/*.tsbuildinfo

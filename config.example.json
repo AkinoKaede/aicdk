@@ -1,0 +1,14 @@
+{
+  "default_system": "primary",
+  "systems": [
+    {
+      "id": "primary",
+      "name": "Primary",
+      "adapter": "partner-v1",
+      "base_url": "https://cdk.bar",
+      "password_env": "CDK_PARTNER_PASSWORD",
+      "prefixes": ["CDK-"],
+      "strip_prefix": false
+    }
+  ]
+}

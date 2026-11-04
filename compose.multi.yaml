@@ -1,0 +1,6 @@
+services:
+  cdk:
+    environment:
+      CONFIG_FILE: /config/config.json
+    volumes:
+      - ./config.json:/config/config.json:ro

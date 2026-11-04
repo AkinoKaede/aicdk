@@ -1,0 +1,165 @@
+name: Test, build and publish
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27"
+          cache: true
+      - run: npm ci
+        working-directory: web
+      - run: npm test
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: go test -race ./...
+      - run: go vet ./...
+      - name: Package Linux binaries
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+        run: |
+          test -s web/dist/index.html
+          out="$RUNNER_TEMP/aicdk-artifacts"
+          mkdir -p "$out"
+          for arch in amd64 arm64; do
+            GOARCH="$arch" go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/cdk" ./cmd/server
+            tar -czf "$out/aicdk-linux-$arch.tar.gz" -C "$RUNNER_TEMP" cdk
+          done
+          cd "$out"
+          sha256sum aicdk-linux-*.tar.gz > SHA256SUMS
+      - name: Upload Linux binaries
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aicdk-linux-${{ github.sha }}
+          path: ${{ runner.temp }}/aicdk-artifacts/
+          if-no-files-found: error
+          compression-level: 0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build container for smoke testing
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: aicdk:ci
+          cache-from: type=gha,scope=aicdk
+          cache-to: type=gha,mode=max,scope=aicdk
+      - name: Container health smoke test
+        run: |
+          trap 'docker rm -fv aicdk-ci >/dev/null 2>&1 || true' EXIT
+          docker run -d --name aicdk-ci \
+            --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --mount type=volume,dst=/data \
+            -e CDK_PARTNER_PASSWORD="$(openssl rand -hex 24)" \
+            -e CDK_UPSTREAM_URL=https://127.0.0.1:1 \
+            aicdk:ci
+          for _ in $(seq 1 20); do
+            if docker exec aicdk-ci /app/cdk healthcheck; then exit 0; fi
+            sleep 1
+          done
+          docker logs aicdk-ci
+          exit 1
+
+  publish:
+    name: Publish multi-platform image to GHCR
+    needs: test
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+       startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=AICDK
+            org.opencontainers.image.description=Self-service CDK redemption with a Go API proxy and embedded React UI
+      - name: Build and publish
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=aicdk
+          cache-to: type=gha,mode=max,scope=aicdk
+      - name: Report published image
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "## Published GHCR image"
+            echo
+            echo '```text'
+            printf '%s\n' "$TAGS"
+            echo '```'
+            echo
+            printf "Digest: \`%s@%s\`\n" "$IMAGE" "$DIGEST"
+            echo
+            echo "Platforms: \`linux/amd64\`, \`linux/arm64\`"
+          } >> "$GITHUB_STEP_SUMMARY"
