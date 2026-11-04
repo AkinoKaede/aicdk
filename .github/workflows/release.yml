@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  release:
+    types: [published, released]
+
+permissions:
+  contents: read
+
+# Serialize updates to the shared prereleased/latest tags across versions.
+concurrency:
+  group: ghcr-release
+  queue: max
+
+jobs:
+  verify:
+    # published covers draft prereleases; released covers stable releases and promotions.
+    if: github.event.action == 'released' || github.event.release.prerelease
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish multi-platform image to GHCR
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate release and set image name
+        id: image
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          [[ "$TAG" == v* ]]
+          bash scripts/check-release-version.sh "${TAG#v}" "$PRERELEASE"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ steps.image.outputs.version }}
+            type=raw,value=prereleased
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=AICDK
+            org.opencontainers.image.description=Self-service CDK redemption with a Go API proxy and embedded React UI
+      - name: Build and publish
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=aicdk
+          cache-to: type=gha,mode=max,scope=aicdk
+      - name: Report published image
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "## Published GHCR image"
+            echo
+            echo '```text'
+            printf '%s\n' "$TAGS"
+            echo '```'
+            echo
+            printf "Digest: \`%s@%s\`\n" "$IMAGE" "$DIGEST"
+            echo
+            echo "Platforms: \`linux/amd64\`, \`linux/arm64\`"
+          } >> "$GITHUB_STEP_SUMMARY"

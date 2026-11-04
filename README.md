@@ -44,7 +44,7 @@ docker compose -f compose.ghcr.yaml exec cdk /app/cdk healthcheck
 CDK_IMAGE=ghcr.io/akinokaede/aicdk:1.0.0
 ```
 
-Only use a version that has actually been published. For reproducible deployments, set `CDK_IMAGE` to the full `ghcr.io/akinokaede/aicdk@sha256:...` reference shown in the publishing run's summary. `latest` follows the default branch, not the most recent release tag.
+Only use a version that has actually been published. For reproducible deployments, set `CDK_IMAGE` to the full `ghcr.io/akinokaede/aicdk@sha256:...` reference shown in the publishing run's summary. `latest` is updated by stable releases only, not by branch pushes or prereleases.
 
 To update, run `pull` and `up -d` again. Keep the same Compose project name and directory so the existing data volume is reused. Never use `down -v` as part of an update.
 
@@ -82,34 +82,28 @@ docker compose up -d --build
 
 Passwords are read only from runtime environment variables. Never put them in `VITE_*` variables, Docker build arguments, image layers, or configuration JSON. `.env`, `config.json`, and the data directory are excluded from version control; examples contain no real credentials.
 
-## GitHub Actions and GHCR Publishing
+## Build and Release
 
-`.github/workflows/ci.yml` tests the application before publishing. The test job runs on branch pushes, `v*` tag pushes, pull requests, and manual dispatches. It runs frontend tests and the Vite production build, Go race tests and vet, and a container health smoke test. The smoke test uses a random dummy password, an unreachable loopback upstream, and no external network.
+Branch pushes and pull requests run **CI**: frontend tests and Vite build, Go race tests and vet, Linux packaging, and an isolated container health check. CI uploads `aicdk-linux-<commit-sha>` as a workflow artifact; it never creates a release or pushes an image. Pushing a Git tag by itself does not publish anything.
 
-To download a standalone build, open **Actions > Test, build and publish**, select the run for your commit, and download `aicdk-linux-<commit-sha>` under **Artifacts**. Unzip it, run `sha256sum -c SHA256SUMS`, then extract the `aicdk-linux-amd64.tar.gz` or `aicdk-linux-arm64.tar.gz` archive for your server. Each contains the executable `cdk` with the frontend embedded; supply the same runtime environment variables as for Docker.
+1. In **Actions > Build > Run workflow**, select the release branch and enter a version **without** `v`. Leave **prerelease** unchecked for a stable release (`1.2.3`); check it for a preview (`1.3.0-rc.1`). A suffix requires the checkbox. A plain version can also be marked as a prerelease if you plan to promote that same tag later.
+2. Build runs CI, verifies both archives, pins `v<version>` to the tested commit, and attaches `aicdk-<version>-linux-{amd64,arm64}.tar.gz` and `SHA256SUMS` to a **draft** GitHub Release. It will not overwrite a release or move an existing tag. Review the generated notes, assets, and prerelease setting in **Releases**.
+3. Click **Publish release** as a maintainer. The **Release** workflow tests the tagged commit and pushes its `linux/amd64` and `linux/arm64` image to GHCR with provenance and an SBOM. Creating or editing the draft does not publish images. To promote a plain-version prerelease, clear the prerelease flag and publish it as a stable release; do not move the tag.
 
-Publishing requires the test job to succeed. The image name is derived from the lowercase repository name, so `AkinoKaede/aicdk` produces `ghcr.io/akinokaede/aicdk`; forks publish under their own repository names.
-
-| Event | Published tags |
+| Published GitHub Release | Tags on `ghcr.io/akinokaede/aicdk` |
 | --- | --- |
-| Push to the repository's default branch | `latest`, `sha-<full-commit-sha>` |
-| Push a semantic version tag such as `v1.0.0` | `1.0.0`, `sha-<full-commit-sha>` |
-| Push a prerelease tag such as `v1.1.0-rc.1` | `1.1.0-rc.1`, `sha-<full-commit-sha>`; never `latest` |
-| Manual run on the default branch or a `v*` tag | Same policy as the corresponding ref |
-| Pull request or another branch | Tests and downloadable binaries; no registry login or image publishing |
+| Prerelease (e.g. `v1.3.0-rc.1`) | `1.3.0-rc.1`, `prereleased`, `sha-<commit>`; never `latest` |
+| Stable (e.g. `v1.2.3`) | `1.2.3`, `latest`, `prereleased`, `sha-<commit>` |
 
-The workflow uses the built-in `GITHUB_TOKEN` with `packages: write` only in the publishing job. No custom registry secret or upstream password is needed in GitHub Actions. Ensure repository / organization policies permit package publishing; if the GHCR package already exists, grant this repository Actions access to it.
+`prereleased` is the rolling channel for **both** stable and preview releases. The Release run summary records the image digest for pinning. The workflows use the built-in `GITHUB_TOKEN`; only the draft job can write repository contents and only the Docker publish job can write packages. No registry or upstream password is required in Actions.
 
-Published images include both supported architectures, OCI metadata, BuildKit provenance, and an SBOM. The run summary records image tags and the manifest digest. Build layers are cached with the GitHub Actions cache backend. Actions are pinned to full commit SHAs, with weekly Dependabot checks for updates.
-
-After the repository and workflow have been pushed to GitHub, publishing a version can be triggered with:
+To trigger Build with the GitHub CLI instead of the UI:
 
 ```sh
-git tag v1.0.0
-git push origin v1.0.0
+gh workflow run build.yml --ref main -f version=1.3.0-rc.1 -f prerelease=true
 ```
 
-Choose a new version for each release; do not move existing release tags. For a manual default-branch build, select **Actions > Test, build and publish > Run workflow**. Publishing a release tag does not move `latest`.
+For a standalone installation, download both archives and `SHA256SUMS` from the published release, run `sha256sum -c SHA256SUMS`, and extract the archive for your architecture. It contains `cdk` with the frontend embedded and uses the same runtime environment variables as Docker.
 
 ## Multiple Systems and Prefix Routing
 

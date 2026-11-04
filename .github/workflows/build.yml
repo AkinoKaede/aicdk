@@ -1,0 +1,85 @@
+name: Build
+run-name: Build v${{ inputs.version }}${{ inputs.prerelease && ' (prerelease)' || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without v (e.g. 1.2.3 or 1.2.3-rc.1)"
+        required: true
+        type: string
+      prerelease:
+        description: Mark the GitHub Release as a prerelease
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check version and prerelease flag
+        env:
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: bash scripts/check-release-version.sh "$VERSION" "$PRERELEASE"
+
+  build:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  draft:
+    name: Attach verified binaries to a draft release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: aicdk-linux-${{ github.sha }}
+          path: dist
+      - name: Verify and version release assets
+        working-directory: dist
+        run: |
+          sha256sum -c SHA256SUMS
+          for arch in amd64 arm64; do
+            mv "aicdk-linux-$arch.tar.gz" "aicdk-$VERSION-linux-$arch.tar.gz"
+          done
+          sha256sum aicdk-*.tar.gz > SHA256SUMS
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        working-directory: dist
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to replace it." >&2
+            exit 1
+          fi
+          # Pin the tag to the tested commit; never move an existing tag.
+          refs=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag")
+          if jq -e --arg ref "refs/tags/$tag" 'any(.[]; .ref == $ref)' <<< "$refs" >/dev/null; then
+            existing=$(gh api "repos/$GH_REPO/commits/refs/tags/$tag" --jq .sha)
+            if [[ "$existing" != "$GITHUB_SHA" ]]; then
+              echo "Tag $tag already points to another commit." >&2
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$GITHUB_SHA" --silent
+          fi
+          gh release create "$tag" --verify-tag --draft --prerelease="$PRERELEASE" \
+            --title "$tag" --generate-notes SHA256SUMS aicdk-*.tar.gz
